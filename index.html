@@ -160,11 +160,7 @@ function renderMain(){
     <div class="hbtns"><button class="btn btn-ghost" onclick="goTo('history')">🗂️</button><button class="btn btn-ghost" onclick="goTo('setup')">⚙️</button></div>
   </div>
   <div class="wrap">
-    <div class="grid2">
-      <button id="vbtn" class="btn ${listening?'btn-listening':'btn-indigo'}" style="padding:14px;font-weight:600;font-size:14px">${listening?'⏹ Detener':'🎤 Hablar'}</button>
-      <button class="btn btn-purple" style="padding:14px;font-weight:600;font-size:14px" onclick="document.getElementById('photo-in').click()">📷 Foto</button>
-      <input id="photo-in" type="file" accept="image/*" capture="environment" class="hidden">
-    </div>
+
     <div class="field"><label class="lbl">📅 Fecha</label><input type="date" id="f-fecha" value="${form.fecha}"></div>
     <div class="field"><label class="lbl">📝 Detalle</label><input type="text" id="f-detalle" value="${esc(form.detalle)}" placeholder="ej. Almuerzo, Hotel, Taxi..."></div>
     <div class="grid32">
