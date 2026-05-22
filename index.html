@@ -1,1 +1,239 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Travel $">
+  <title>Travel Expenses</title>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f0f1a;color:#e0e0e0;min-height:100vh}
+    .header{background:#16162a;border-bottom:1px solid #2a2a45;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:20}
+    .hbtns{display:flex;gap:8px}
+    .wrap{padding:16px;max-width:440px;margin:0 auto;padding-bottom:48px;display:flex;flex-direction:column;gap:14px}
+    input,select{width:100%;padding:10px 14px;border-radius:10px;border:1px solid #333;background:#1a1a2e;color:#e0e0e0;font-size:15px;outline:none;font-family:inherit}
+    input[type=date]{color-scheme:dark}
+    input::placeholder{color:#555}
+    select option{background:#1a1a2e}
+    .btn{border:none;border-radius:10px;font-size:14px;font-weight:500;cursor:pointer;padding:10px 14px;font-family:inherit;transition:opacity .15s}
+    .btn:active{opacity:.75}
+    .btn-ghost{background:transparent;border:1px solid #333;color:#aaa}
+    .btn-indigo{background:#4f46e5;color:#fff}
+    .btn-purple{background:#7c3aed;color:#fff}
+    .btn-green{background:#059669;color:#fff}
+    .btn-red{background:#dc2626;color:#fff}
+    .btn-listening{background:#dc2626;color:#fff;animation:pulse 1s infinite}
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .grid32{display:grid;grid-template-columns:3fr 2fr;gap:10px}
+    .pills{display:flex;gap:6px;flex-wrap:wrap}
+    .pill{padding:8px 14px;border-radius:20px;font-size:13px;font-weight:500;cursor:pointer;border:1px solid #444;background:transparent;color:#aaa;font-family:inherit;transition:all .15s}
+    .pill.on{background:#4f46e5;border-color:#4f46e5;color:#fff}
+    .lbl{font-size:12px;color:#888;display:block;margin-bottom:4px}
+    .field{display:flex;flex-direction:column}
+    .savebtn{width:100%;padding:16px;border-radius:14px;font-size:16px;font-weight:700;border:none;cursor:pointer;font-family:inherit;color:#fff}
+    .toast{position:fixed;bottom:20px;left:16px;right:16px;max-width:440px;margin:0 auto;padding:12px 16px;border-radius:12px;font-size:13px;font-weight:500;text-align:center;z-index:100;color:#fff;display:none}
+    .t-ok{background:#059669}.t-err{background:#dc2626}
+    .card{background:#16162a;border:1px solid #2a2a45;border-radius:12px;padding:12px 14px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+    .card-l{flex:1;min-width:0}
+    .card-name{font-weight:500;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .card-sub{color:#888;font-size:11px;margin-top:3px}
+    .card-amt{color:#4ade80;font-weight:600;font-size:15px}
+    .card-cur{color:#888;font-size:11px;text-align:right}
+    .warn{color:#f59e0b;font-size:12px;text-align:center}
+    .info-box{background:#1a1a35;border:1px solid rgba(245,158,11,.3);border-radius:12px;padding:14px}
+    .info-box p{color:#f59e0b;font-weight:500;font-size:13px;margin-bottom:10px}
+    .info-box ol{color:#bbb;font-size:12px;line-height:1.9;padding-left:18px}
+    .info-box span{color:#fbbf24;font-family:monospace}
+    .code-box{background:#0d0d1f;border:1px solid #2a2a45;border-radius:10px;padding:14px}
+    .code-box pre{color:#4ade80;font-size:11px;font-family:monospace;white-space:pre-wrap;line-height:1.7}
+    .hidden{display:none}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+  </style>
+</head>
+<body>
+<div id="app"></div>
+<div id="toast" class="toast"></div>
 
+<script>
+const CURR=['USD','UYU','EUR','COP','ARS','BRL'];
+const CLBL={USD:'USD 🇺🇸',UYU:'UYU 🇺🇾',EUR:'EUR 🇪🇺',COP:'COP 🇨🇴',ARS:'ARS 🇦🇷',BRL:'BRL 🇧🇷'};
+const PAY=['Efectivo','Crédito','Débito'];
+const GAS=`function doGet(e) {
+  const sheet = SpreadsheetApp
+    .getActiveSpreadsheet()
+    .getActiveSheet();
+  const p = e.parameter;
+  sheet.appendRow([
+    p.fecha, p.detalle,
+    Number(p.monto), p.moneda,
+    p.medioPago, p.quienPago,
+    p.comentarios, new Date()
+  ]);
+  return ContentService
+    .createTextOutput("OK");
+}`;
+
+let cfg=JSON.parse(localStorage.getItem('te_cfg')||'{"scriptUrl":"","user1":"Gonzalo","user2":"Pareja"}');
+let entries=JSON.parse(localStorage.getItem('te_log')||'[]');
+let form=mkForm();
+let view='main';
+let cfgE={...cfg};
+let busy=false;
+let listening=false;
+let sr=null;
+
+function mkForm(){return{fecha:new Date().toISOString().split('T')[0],detalle:'',monto:'',moneda:'USD',medioPago:'Efectivo',quienPago:cfg.user1||'Gonzalo',comentarios:''};}
+function saveCfg(){localStorage.setItem('te_cfg',JSON.stringify(cfg));}
+function saveLog(){localStorage.setItem('te_log',JSON.stringify(entries));}
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+let toastT;
+function showToast(msg,type='ok'){
+  clearTimeout(toastT);
+  const el=document.getElementById('toast');
+  el.textContent=msg;el.className='toast t-'+type;el.style.display='block';
+  toastT=setTimeout(()=>el.style.display='none',3500);
+}
+
+function sendToSheets(entry){
+  const base=cfg.scriptUrl?.trim();if(!base)return;
+  const p=new URLSearchParams();
+  Object.entries(entry).forEach(([k,v])=>p.set(k,String(v??'')));
+  fetch(base+(base.includes('?')?'&':'?')+p.toString(),{mode:'no-cors'}).catch(()=>{});
+}
+
+function goTo(v){view=v;render();}
+
+function setField(k,val){syncDOM();form[k]=val;render();}
+
+function syncDOM(){
+  ['fecha','detalle','monto','moneda','comentarios'].forEach(k=>{
+    const el=document.getElementById('f-'+k);if(el)form[k]=el.value;
+  });
+}
+
+function save(){
+  syncDOM();
+  if(!form.detalle.trim()||!form.monto){showToast('Completá detalle y monto ⚠️','err');return;}
+  const entry={...form,ts:new Date().toISOString()};
+  entries=[entry,...entries].slice(0,100);saveLog();
+  sendToSheets(entry);
+  showToast(cfg.scriptUrl?.trim()?'✅ Registrado en Google Sheets':'💾 Guardado localmente');
+  form=mkForm();render();
+}
+
+function saveCfgUI(){
+  cfg.user1=document.getElementById('cfg-u1').value.trim()||'Gonzalo';
+  cfg.user2=document.getElementById('cfg-u2').value.trim()||'Pareja';
+  cfg.scriptUrl=document.getElementById('cfg-url').value.trim();
+  cfgE={...cfg};form.quienPago=cfg.user1;saveCfg();
+  showToast('✅ Configuración guardada');
+  setTimeout(()=>goTo('main'),1500);
+}
+
+function toggleVoice(){
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR){showToast('Voz no disponible en este navegador','err');return;}
+  if(listening){sr?.stop();return;}
+  syncDOM();
+  const r=new SR();r.lang='es-ES';
+  r.onresult=e=>{listening=false;form.detalle=e.results[0][0].transcript;render();showToast('🎤 Revisá el detalle y completá el resto');};
+  r.onerror=()=>{listening=false;render();showToast('Error de micrófono','err');};
+  r.onend=()=>{listening=false;render();};
+  r.start();sr=r;listening=true;render();
+}
+
+function render(){
+  const app=document.getElementById('app');
+  if(view==='setup')app.innerHTML=renderSetup();
+  else if(view==='history')app.innerHTML=renderHistory();
+  else app.innerHTML=renderMain();
+  attachListeners();
+}
+
+function renderMain(){
+  const users=[cfg.user1||'Persona 1',cfg.user2||'Persona 2'];
+  return`<div class="header">
+    <div><p style="font-weight:600;font-size:15px">✈️ Travel Expenses</p><p style="color:#666;font-size:11px">${esc(cfg.user1)} & ${esc(cfg.user2)}</p></div>
+    <div class="hbtns"><button class="btn btn-ghost" onclick="goTo('history')">🗂️</button><button class="btn btn-ghost" onclick="goTo('setup')">⚙️</button></div>
+  </div>
+  <div class="wrap">
+    <div class="grid2">
+      <button id="vbtn" class="btn ${listening?'btn-listening':'btn-indigo'}" style="padding:14px;font-weight:600;font-size:14px">${listening?'⏹ Detener':'🎤 Hablar'}</button>
+      <button class="btn btn-purple" style="padding:14px;font-weight:600;font-size:14px" onclick="document.getElementById('photo-in').click()">📷 Foto</button>
+      <input id="photo-in" type="file" accept="image/*" capture="environment" class="hidden">
+    </div>
+    <div class="field"><label class="lbl">📅 Fecha</label><input type="date" id="f-fecha" value="${form.fecha}"></div>
+    <div class="field"><label class="lbl">📝 Detalle</label><input type="text" id="f-detalle" value="${esc(form.detalle)}" placeholder="ej. Almuerzo, Hotel, Taxi..."></div>
+    <div class="grid32">
+      <div class="field"><label class="lbl">💰 Monto</label><input type="number" id="f-monto" value="${esc(form.monto)}" placeholder="0.00" inputmode="decimal"></div>
+      <div class="field"><label class="lbl">Moneda</label><select id="f-moneda">${CURR.map(c=>`<option value="${c}"${form.moneda===c?' selected':''}>${CLBL[c]}</option>`).join('')}</select></div>
+    </div>
+    <div class="field"><label class="lbl">💳 Medio de pago</label><div class="pills">${PAY.map(m=>`<button class="pill${form.medioPago===m?' on':''}" onclick="setField('medioPago','${m}')">${m}</button>`).join('')}</div></div>
+    <div class="field"><label class="lbl">👤 Quién pagó</label><div class="pills">${users.map(u=>`<button class="pill${form.quienPago===u?' on':''}" onclick="setField('quienPago','${esc(u)}')">${esc(u)}</button>`).join('')}</div></div>
+    <div class="field"><label class="lbl">💬 Comentarios (opcional)</label><input type="text" id="f-comentarios" value="${esc(form.comentarios)}" placeholder="ej. Split 50/50, propina..."></div>
+    <button class="savebtn" style="background:${busy?'#2a2a45':'#059669'}" onclick="save()" ${busy?'disabled':''}>✅ Registrar gasto</button>
+    ${!cfg.scriptUrl?'<p class="warn">⚠️ Configurá la URL del Apps Script en ⚙️</p>':''}
+  </div>`;
+}
+
+function renderSetup(){
+  return`<div class="header">
+    <button class="btn btn-ghost" style="font-size:18px;padding:6px 12px" onclick="goTo('main')">←</button>
+    <span style="font-weight:500">⚙️ Configuración</span>
+    <span style="width:42px"></span>
+  </div>
+  <div class="wrap">
+    <div class="field"><label class="lbl">👤 Persona 1</label><input type="text" id="cfg-u1" value="${esc(cfgE.user1)}" placeholder="Tu nombre"></div>
+    <div class="field"><label class="lbl">👤 Persona 2</label><input type="text" id="cfg-u2" value="${esc(cfgE.user2)}" placeholder="Nombre de tu pareja"></div>
+    <div class="field"><label class="lbl">🔗 URL del Apps Script</label><input type="url" id="cfg-url" value="${esc(cfgE.scriptUrl)}" placeholder="https://script.google.com/macros/s/..." style="font-size:11px"></div>
+    <div class="info-box">
+      <p>📋 Cómo configurar Google Sheets</p>
+      <ol>
+        <li>Creá un Google Sheet nuevo y compartílo</li>
+        <li>Fila 1: <span>Fecha|Detalle|Monto|Moneda|Medio|Quién|Comentarios|Registrado</span></li>
+        <li>Extensiones → Apps Script</li>
+        <li>Pegá el código de abajo y guardá (💾)</li>
+        <li>Implementar → Nueva implementación → App web</li>
+        <li>Ejecutar como: Yo · Acceso: Cualquiera</li>
+        <li>Copiá la URL y pegala arriba</li>
+      </ol>
+    </div>
+    <div class="code-box"><pre>${esc(GAS)}</pre></div>
+    <button class="savebtn btn-indigo" onclick="saveCfgUI()">Guardar configuración</button>
+  </div>`;
+}
+
+function renderHistory(){
+  return`<div class="header">
+    <button class="btn btn-ghost" style="font-size:18px;padding:6px 12px" onclick="goTo('main')">←</button>
+    <span style="font-weight:500">🗂️ Historial</span>
+    <span style="font-size:12px;color:#666">${entries.length} registros</span>
+  </div>
+  <div class="wrap" style="gap:0">
+    ${entries.length===0
+      ?'<p style="color:#555;text-align:center;margin-top:60px">Sin registros aún</p>'
+      :entries.map(e=>`<div class="card">
+        <div class="card-l"><p class="card-name">${esc(e.detalle)}</p><p class="card-sub">${esc(e.fecha)} · ${esc(e.quienPago)} · ${esc(e.medioPago)}</p>${e.comentarios?`<p class="card-sub" style="color:#666">${esc(e.comentarios)}</p>`:''}</div>
+        <div><p class="card-amt">${Number(e.monto).toLocaleString()}</p><p class="card-cur">${esc(e.moneda)}</p></div>
+      </div>`).join('')}
+  </div>`;
+}
+
+function attachListeners(){
+  const vb=document.getElementById('vbtn');
+  if(vb)vb.addEventListener('click',toggleVoice);
+  const ph=document.getElementById('photo-in');
+  if(ph)ph.addEventListener('change',e=>{if(e.target.files[0]){syncDOM();showToast('📷 Foto lista — completá los datos');e.target.value='';}});
+  ['fecha','detalle','monto','moneda','comentarios'].forEach(k=>{
+    const el=document.getElementById('f-'+k);
+    if(el)el.addEventListener('input',()=>syncDOM());
+  });
+}
+
+render();
+</script>
+</body>
+</html>
