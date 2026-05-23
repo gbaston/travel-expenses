@@ -11,7 +11,7 @@
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f0f1a;color:#e0e0e0;min-height:100vh}
     .header{background:#16162a;border-bottom:1px solid #2a2a45;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:20}
-    .hbtns{display:flex;gap:8px}
+    .hbtns{display:flex;gap:8px;align-items:center}
     .wrap{padding:16px;max-width:440px;margin:0 auto;padding-bottom:48px;display:flex;flex-direction:column;gap:14px}
     input,select{width:100%;padding:10px 14px;border-radius:10px;border:1px solid #333;background:#1a1a2e;color:#e0e0e0;font-size:15px;outline:none;font-family:inherit}
     input[type=date]{color-scheme:dark}
@@ -21,11 +21,7 @@
     .btn:active{opacity:.75}
     .btn-ghost{background:transparent;border:1px solid #333;color:#aaa}
     .btn-indigo{background:#4f46e5;color:#fff}
-    .btn-purple{background:#7c3aed;color:#fff}
     .btn-green{background:#059669;color:#fff}
-    .btn-red{background:#dc2626;color:#fff}
-    .btn-listening{background:#dc2626;color:#fff;animation:pulse 1s infinite}
-    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
     .grid32{display:grid;grid-template-columns:3fr 2fr;gap:10px}
     .pills{display:flex;gap:6px;flex-wrap:wrap}
     .pill{padding:8px 14px;border-radius:20px;font-size:13px;font-weight:500;cursor:pointer;border:1px solid #444;background:transparent;color:#aaa;font-family:inherit;transition:all .15s}
@@ -34,13 +30,14 @@
     .field{display:flex;flex-direction:column}
     .savebtn{width:100%;padding:16px;border-radius:14px;font-size:16px;font-weight:700;border:none;cursor:pointer;font-family:inherit;color:#fff}
     .toast{position:fixed;bottom:20px;left:16px;right:16px;max-width:440px;margin:0 auto;padding:12px 16px;border-radius:12px;font-size:13px;font-weight:500;text-align:center;z-index:100;color:#fff;display:none}
-    .t-ok{background:#059669}.t-err{background:#dc2626}
+    .t-ok{background:#059669}.t-err{background:#dc2626}.t-warn{background:#d97706}
     .card{background:#16162a;border:1px solid #2a2a45;border-radius:12px;padding:12px 14px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
     .card-l{flex:1;min-width:0}
     .card-name{font-weight:500;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .card-sub{color:#888;font-size:11px;margin-top:3px}
     .card-amt{color:#4ade80;font-weight:600;font-size:15px}
     .card-cur{color:#888;font-size:11px;text-align:right}
+    .pending-badge{background:#d97706;color:#fff;font-size:11px;font-weight:600;padding:3px 8px;border-radius:20px;cursor:pointer}
     .warn{color:#f59e0b;font-size:12px;text-align:center}
     .info-box{background:#1a1a35;border:1px solid rgba(245,158,11,.3);border-radius:12px;padding:14px}
     .info-box p{color:#f59e0b;font-weight:500;font-size:13px;margin-bottom:10px}
@@ -49,7 +46,7 @@
     .code-box{background:#0d0d1f;border:1px solid #2a2a45;border-radius:10px;padding:14px}
     .code-box pre{color:#4ade80;font-size:11px;font-family:monospace;white-space:pre-wrap;line-height:1.7}
     .hidden{display:none}
-    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+    .pending-box{background:#1a1a2e;border:1px solid #d9780644;border-radius:12px;padding:12px 14px;display:flex;justify-content:space-between;align-items:center}
   </style>
 </head>
 <body>
@@ -65,6 +62,13 @@ const GAS=`function doGet(e) {
     .getActiveSpreadsheet()
     .getActiveSheet();
   const p = e.parameter;
+
+  // Ignorar si faltan campos clave
+  if (!p.detalle || !p.monto) {
+    return ContentService
+      .createTextOutput("SKIP");
+  }
+
   sheet.appendRow([
     p.fecha, p.detalle,
     Number(p.monto), p.moneda,
@@ -77,16 +81,15 @@ const GAS=`function doGet(e) {
 
 let cfg=JSON.parse(localStorage.getItem('te_cfg')||'{"scriptUrl":"","user1":"Gonzalo","user2":"Pareja"}');
 let entries=JSON.parse(localStorage.getItem('te_log')||'[]');
+let pending=JSON.parse(localStorage.getItem('te_pending')||'[]');
 let form=mkForm();
 let view='main';
 let cfgE={...cfg};
-let busy=false;
-let listening=false;
-let sr=null;
 
 function mkForm(){return{fecha:new Date().toISOString().split('T')[0],detalle:'',monto:'',moneda:'USD',medioPago:'Efectivo',quienPago:cfg.user1||'Gonzalo',comentarios:''};}
 function saveCfg(){localStorage.setItem('te_cfg',JSON.stringify(cfg));}
 function saveLog(){localStorage.setItem('te_log',JSON.stringify(entries));}
+function savePending(){localStorage.setItem('te_pending',JSON.stringify(pending));}
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 
 let toastT;
@@ -97,30 +100,67 @@ function showToast(msg,type='ok'){
   toastT=setTimeout(()=>el.style.display='none',3500);
 }
 
-function sendToSheets(entry){
+async function sendEntry(entry){
   const base=cfg.scriptUrl?.trim();if(!base)return;
   const p=new URLSearchParams();
   Object.entries(entry).forEach(([k,v])=>p.set(k,String(v??'')));
-  fetch(base+(base.includes('?')?'&':'?')+p.toString(),{mode:'no-cors'}).catch(()=>{});
+  await fetch(base+(base.includes('?')?'&':'?')+p.toString(),{mode:'no-cors'});
 }
 
+async function flushPending(){
+  if(!pending.length||!cfg.scriptUrl?.trim())return;
+  const snap=[...pending];
+  let sent=0;
+  for(const entry of snap){
+    try{
+      await sendEntry(entry);
+      pending=pending.filter(e=>e.ts!==entry.ts);
+      sent++;
+    }catch{}
+  }
+  savePending();
+  if(sent>0){
+    showToast(`✅ ${sent} gasto${sent>1?'s':''} pendiente${sent>1?'s':''} enviado${sent>1?'s':''}`);
+    render();
+  }
+}
+
+// Auto-enviar cuando vuelve la conexión
+window.addEventListener('online',()=>{
+  showToast('📶 Conexión restaurada — enviando pendientes...');
+  setTimeout(flushPending,1000);
+});
+
 function goTo(v){view=v;render();}
-
 function setField(k,val){syncDOM();form[k]=val;render();}
-
 function syncDOM(){
   ['fecha','detalle','monto','moneda','comentarios'].forEach(k=>{
     const el=document.getElementById('f-'+k);if(el)form[k]=el.value;
   });
 }
 
-function save(){
+async function save(){
   syncDOM();
   if(!form.detalle.trim()||!form.monto){showToast('Completá detalle y monto ⚠️','err');return;}
   const entry={...form,ts:new Date().toISOString()};
   entries=[entry,...entries].slice(0,100);saveLog();
-  sendToSheets(entry);
-  showToast(cfg.scriptUrl?.trim()?'✅ Registrado en Google Sheets':'💾 Guardado localmente');
+
+  if(cfg.scriptUrl?.trim()){
+    if(!navigator.onLine){
+      pending.push(entry);savePending();
+      showToast('📵 Sin conexión — se enviará cuando vuelva la red','warn');
+    } else {
+      try{
+        await sendEntry(entry);
+        showToast('✅ Registrado en Google Sheets');
+      }catch{
+        pending.push(entry);savePending();
+        showToast('📵 Sin conexión — se enviará cuando vuelva la red','warn');
+      }
+    }
+  } else {
+    showToast('💾 Guardado localmente');
+  }
   form=mkForm();render();
 }
 
@@ -133,18 +173,6 @@ function saveCfgUI(){
   setTimeout(()=>goTo('main'),1500);
 }
 
-function toggleVoice(){
-  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-  if(!SR){showToast('Voz no disponible en este navegador','err');return;}
-  if(listening){sr?.stop();return;}
-  syncDOM();
-  const r=new SR();r.lang='es-ES';
-  r.onresult=e=>{listening=false;form.detalle=e.results[0][0].transcript;render();showToast('🎤 Revisá el detalle y completá el resto');};
-  r.onerror=()=>{listening=false;render();showToast('Error de micrófono','err');};
-  r.onend=()=>{listening=false;render();};
-  r.start();sr=r;listening=true;render();
-}
-
 function render(){
   const app=document.getElementById('app');
   if(view==='setup')app.innerHTML=renderSetup();
@@ -155,12 +183,20 @@ function render(){
 
 function renderMain(){
   const users=[cfg.user1||'Persona 1',cfg.user2||'Persona 2'];
+  const hasPending=pending.length>0;
   return`<div class="header">
     <div><p style="font-weight:600;font-size:15px">✈️ Travel Expenses</p><p style="color:#666;font-size:11px">${esc(cfg.user1)} & ${esc(cfg.user2)}</p></div>
-    <div class="hbtns"><button class="btn btn-ghost" onclick="goTo('history')">🗂️</button><button class="btn btn-ghost" onclick="goTo('setup')">⚙️</button></div>
+    <div class="hbtns">
+      ${hasPending?`<span class="pending-badge" onclick="flushPending()">📵 ${pending.length}</span>`:''}
+      <button class="btn btn-ghost" onclick="goTo('history')">🗂️</button>
+      <button class="btn btn-ghost" onclick="goTo('setup')">⚙️</button>
+    </div>
   </div>
   <div class="wrap">
-
+    ${hasPending?`<div class="pending-box">
+      <span style="font-size:13px;color:#f59e0b">📵 ${pending.length} gasto${pending.length>1?'s':''} sin enviar</span>
+      <button class="btn btn-ghost" style="font-size:12px;padding:6px 12px" onclick="flushPending()">Reintentar</button>
+    </div>`:''}
     <div class="field"><label class="lbl">📅 Fecha</label><input type="date" id="f-fecha" value="${form.fecha}"></div>
     <div class="field"><label class="lbl">📝 Detalle</label><input type="text" id="f-detalle" value="${esc(form.detalle)}" placeholder="ej. Almuerzo, Hotel, Taxi..."></div>
     <div class="grid32">
@@ -170,7 +206,7 @@ function renderMain(){
     <div class="field"><label class="lbl">💳 Medio de pago</label><div class="pills">${PAY.map(m=>`<button class="pill${form.medioPago===m?' on':''}" onclick="setField('medioPago','${m}')">${m}</button>`).join('')}</div></div>
     <div class="field"><label class="lbl">👤 Quién pagó</label><div class="pills">${users.map(u=>`<button class="pill${form.quienPago===u?' on':''}" onclick="setField('quienPago','${esc(u)}')">${esc(u)}</button>`).join('')}</div></div>
     <div class="field"><label class="lbl">💬 Comentarios (opcional)</label><input type="text" id="f-comentarios" value="${esc(form.comentarios)}" placeholder="ej. Split 50/50, propina..."></div>
-    <button class="savebtn" style="background:${busy?'#2a2a45':'#059669'}" onclick="save()" ${busy?'disabled':''}>✅ Registrar gasto</button>
+    <button class="savebtn" style="background:#059669" onclick="save()">✅ Registrar gasto</button>
     ${!cfg.scriptUrl?'<p class="warn">⚠️ Configurá la URL del Apps Script en ⚙️</p>':''}
   </div>`;
 }
@@ -198,7 +234,7 @@ function renderSetup(){
       </ol>
     </div>
     <div class="code-box"><pre>${esc(GAS)}</pre></div>
-    <button class="savebtn btn-indigo" onclick="saveCfgUI()">Guardar configuración</button>
+    <button class="savebtn btn-indigo" style="background:#4f46e5" onclick="saveCfgUI()">Guardar configuración</button>
   </div>`;
 }
 
@@ -219,10 +255,6 @@ function renderHistory(){
 }
 
 function attachListeners(){
-  const vb=document.getElementById('vbtn');
-  if(vb)vb.addEventListener('click',toggleVoice);
-  const ph=document.getElementById('photo-in');
-  if(ph)ph.addEventListener('change',e=>{if(e.target.files[0]){syncDOM();showToast('📷 Foto lista — completá los datos');e.target.value='';}});
   ['fecha','detalle','monto','moneda','comentarios'].forEach(k=>{
     const el=document.getElementById('f-'+k);
     if(el)el.addEventListener('input',()=>syncDOM());
